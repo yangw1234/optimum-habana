@@ -453,32 +453,32 @@ def main():
     if model_args.model_name_or_path:
         model_dtype = torch.bfloat16 if training_args.bf16 else None
         # model_dtype = torch.float32
-        # model = AutoModelForCausalLM.from_pretrained(
-        #     model_args.model_name_or_path,
-        #     # "/root/yang/llama-2-70b-hf-nf4",
-        #     # device_map="cpu",
-        #     # device_map="hpu",
-        #     load_in_low_bit="sym_int4",
-        #     optimize_model=False,
-        #     modules_to_not_convert=["lm_head"],
-        #     from_tf=bool(".ckpt" in model_args.model_name_or_path),
-        #     config=config,
-        #     cache_dir=model_args.cache_dir,
-        #     revision=model_args.model_revision,
-        #     use_auth_token=True if model_args.use_auth_token else None,
-        #     trust_remote_code=True if model_args.trust_remote_code else None,
-        #     torch_dtype=model_dtype,
-        #     low_cpu_mem_usage=model_args.low_cpu_mem_usage,
-        # )#.to("hpu")
+        model = AutoModelForCausalLM.from_pretrained(
+            model_args.model_name_or_path,
+            # "/root/yang/llama-2-70b-hf-nf4",
+            # device_map="cpu",
+            # device_map="hpu",
+            load_in_low_bit="nf4",
+            optimize_model=False,
+            modules_to_not_convert=["lm_head"],
+            from_tf=bool(".ckpt" in model_args.model_name_or_path),
+            config=config,
+            cache_dir=model_args.cache_dir,
+            revision=model_args.model_revision,
+            use_auth_token=True if model_args.use_auth_token else None,
+            trust_remote_code=True if model_args.trust_remote_code else None,
+            torch_dtype=model_dtype,
+            low_cpu_mem_usage=model_args.low_cpu_mem_usage,
+        )#.to("hpu")
         # model.save_low_bit("./low_bit_llama2-b")
         # exit(0)
-        model = AutoModelForCausalLM.load_low_bit(
-            "/root/yang/llama-2-70b-hf-int4",
-            optimize_model=False,
-            torch_dtype=torch.bfloat16,
-            # device_map="hpu",
-            modules_to_not_convert=["lm_head"],
-        )
+        # model = AutoModelForCausalLM.load_low_bit(
+        #     "/root/yang/llama-2-70b-hf-int4",
+        #     optimize_model=False,
+        #     torch_dtype=torch.bfloat16,
+        #     # device_map="hpu",
+        #     modules_to_not_convert=["lm_head"],
+        # )
         # model = model.to("hpu")
     else:
         raise ValueError("Must provide model_name_or_path to load a pretrained CausalLM model.")
