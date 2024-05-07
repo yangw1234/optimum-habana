@@ -33,15 +33,20 @@ from datasets import load_dataset
 from peft import (
     LoraConfig,
     TaskType,
-    get_peft_model,
+    # get_peft_model,
 )
+
+from bigdl.llm.transformers.qlora import get_peft_model, prepare_model_for_kbit_training
 from transformers import (
     AutoConfig,
-    AutoModelForCausalLM,
+    # AutoModelForCausalLM,
     AutoTokenizer,
     DataCollatorForLanguageModeling,
     HfArgumentParser,
 )
+from bigdl.llm.transformers import AutoModelForCausalLM
+# from transformers import AutoModelForCausalLM
+
 from transformers.modeling_utils import unwrap_model
 from transformers.trainer_utils import is_main_process
 
@@ -152,7 +157,7 @@ class DataArguments:
         metadata={"help": "An optional input evaluation data file to evaluate the perplexity on (a text file)."},
     )
     max_seq_length: Optional[int] = field(
-        default=512,
+        default=256,
         metadata={
             "help": "The maximum total input sequence length after tokenization. Sequences longer "
             "than this will be truncated."
@@ -447,8 +452,15 @@ def main():
     # Load model
     if model_args.model_name_or_path:
         model_dtype = torch.bfloat16 if training_args.bf16 else None
+        # model_dtype = torch.float32
         model = AutoModelForCausalLM.from_pretrained(
             model_args.model_name_or_path,
+            # "/root/yang/llama-2-70b-hf-nf4",
+            # device_map="cpu",
+            # device_map="hpu",
+            load_in_low_bit="nf4",
+            optimize_model=False,
+            modules_to_not_convert=["lm_head"],
             from_tf=bool(".ckpt" in model_args.model_name_or_path),
             config=config,
             cache_dir=model_args.cache_dir,
@@ -457,7 +469,17 @@ def main():
             trust_remote_code=True if model_args.trust_remote_code else None,
             torch_dtype=model_dtype,
             low_cpu_mem_usage=model_args.low_cpu_mem_usage,
-        )
+        )#.to("hpu")
+        # model.save_low_bit("./low_bit_llama2-b")
+        # exit(0)
+        # model = AutoModelForCausalLM.load_low_bit(
+        #     "/root/yang/llama-2-70b-hf-int4",
+        #     optimize_model=False,
+        #     torch_dtype=torch.bfloat16,
+        #     # device_map="hpu",
+        #     modules_to_not_convert=["lm_head"],
+        # )
+        # model = model.to("hpu")
     else:
         raise ValueError("Must provide model_name_or_path to load a pretrained CausalLM model.")
 
@@ -599,9 +621,13 @@ def main():
             bias="none",
             task_type=TaskType.CAUSAL_LM,
         )
+
+        model = prepare_model_for_kbit_training(model, use_gradient_checkpointing=training_args.gradient_checkpointing)
+
         if training_args.gradient_checkpointing:
             model.enable_input_require_grads()
         lora_model = get_peft_model(model, peft_config)
+        print(model)
         if training_args.bf16:
             lora_model = lora_model.to(torch.bfloat16)
         lora_model.print_trainable_parameters()
