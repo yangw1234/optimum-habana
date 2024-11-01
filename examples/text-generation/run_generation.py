@@ -32,6 +32,23 @@ from utils import adjust_batch, count_hpu_graphs, finalize_quantization, initial
 
 from optimum.habana.utils import get_hpu_memory_stats
 
+def setup_profiler():
+    schedule = torch.profiler.schedule(wait=0, warmup=0, active=1, repeat=0)
+    DEVICE = 'hpu'
+    activities = [torch.profiler.ProfilerActivity.CPU]
+    activities.extend([torch.profiler.ProfilerActivity.HPU] if DEVICE ==
+                      'hpu' else [])
+
+    profiler = torch.profiler.profile(
+        schedule=schedule,
+        activities=activities,
+        #debug_activities=debug_activities,
+        on_trace_ready=torch.profiler.tensorboard_trace_handler('.',
+                                                                use_gzip=True),
+        record_shapes=False,
+        with_stack=False)
+    return profiler
+
 
 logging.basicConfig(
     format="%(asctime)s - %(levelname)s - %(name)s - %(message)s",
@@ -546,6 +563,8 @@ def main():
         logger.info("Running generate...")
         t0 = time.perf_counter()
         # Benchmark over n_iterations iterations
+        # profiler = setup_profiler()
+        # profiler.start()
         if dyn_prompt_lens is None:
             for i in range(args.n_iterations):
                 generated = generate(None, args.reduce_recompile)
@@ -558,6 +577,8 @@ def main():
         duration = time.perf_counter() - t0
         total_new_tokens_generated = args.n_iterations * args.batch_size * args.max_new_tokens
         throughput = total_new_tokens_generated / duration
+        # profiler.step()
+        # profiler.stop()
 
         print()
         print("Input/outputs:")
