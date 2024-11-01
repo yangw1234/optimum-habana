@@ -32,23 +32,6 @@ from utils import adjust_batch, count_hpu_graphs, finalize_quantization, initial
 
 from optimum.habana.utils import get_hpu_memory_stats
 
-def setup_profiler():
-    schedule = torch.profiler.schedule(wait=0, warmup=0, active=1, repeat=0)
-    DEVICE = 'hpu'
-    activities = [torch.profiler.ProfilerActivity.CPU]
-    activities.extend([torch.profiler.ProfilerActivity.HPU] if DEVICE ==
-                      'hpu' else [])
-
-    profiler = torch.profiler.profile(
-        schedule=schedule,
-        activities=activities,
-        #debug_activities=debug_activities,
-        on_trace_ready=torch.profiler.tensorboard_trace_handler('.',
-                                                                use_gzip=True),
-        record_shapes=False,
-        with_stack=False)
-    return profiler
-
 
 logging.basicConfig(
     format="%(asctime)s - %(levelname)s - %(name)s - %(message)s",
@@ -56,6 +39,7 @@ logging.basicConfig(
     level=logging.INFO,
 )
 logger = logging.getLogger(__name__)
+logging.getLogger().setLevel(logging.INFO)
 
 
 def setup_parser(parser):
@@ -333,6 +317,7 @@ def setup_parser(parser):
         help="Run the inference with dataset for specified --n_iterations(default:5)",
     )
 
+
     quant_parser_group = parser.add_mutually_exclusive_group()
     quant_parser_group.add_argument(
         "--load_quantized_model_with_autogptq",
@@ -522,7 +507,7 @@ def main():
             ).cpu()
             first_token_time = iteration_times[0] + encode_duration
             logger.info(f"Time to first token = {first_token_time*1000}ms")
-            return tokenizer.batch_decode(outputs, skip_special_tokens=True)
+            return tokenizer.batch_decode(outputs, skip_special_tokens=True), iteration_times
 
         from optimum.habana.utils import HabanaProfile
 
@@ -563,32 +548,29 @@ def main():
         logger.info("Running generate...")
         t0 = time.perf_counter()
         # Benchmark over n_iterations iterations
-        # profiler = setup_profiler()
-        # profiler.start()
         if dyn_prompt_lens is None:
             for i in range(args.n_iterations):
-                generated = generate(None, args.reduce_recompile)
+                generated, iteration_times = generate(None, args.reduce_recompile)
         else:
             repeated_prompt_len = cycle(dyn_prompt_lens)
             for i in range(args.n_iterations):
                 prompt_len = next(repeated_prompt_len)
                 print("Generating for shape,", prompt_len)
-                generated = generate(prompt_len, args.reduce_recompile)
+                generated, iteration_times = generate(prompt_len, args.reduce_recompile)
         duration = time.perf_counter() - t0
         total_new_tokens_generated = args.n_iterations * args.batch_size * args.max_new_tokens
         throughput = total_new_tokens_generated / duration
-        # profiler.step()
-        # profiler.stop()
 
-        print()
-        print("Input/outputs:")
+        #print()
+        #print("Input/outputs:")
         for i, input_sentence in enumerate(zip(input_sentences)):
-            print(f"input {i+1}: {input_sentence}")
+            #print(f"input {i+1}: {input_sentence}")
             for j, output in enumerate(
                 zip(generated[args.num_return_sequences * i : args.num_return_sequences * (i + 1)])
             ):
-                print(f"output {j+1}: {output}")
-            print()
+                #print(f"output {j+1}: {output}")
+                pass
+            #print()
 
         # Store results if necessary
         if args.output_dir is not None and args.global_rank == 0:
@@ -604,6 +586,8 @@ def main():
 
         stats = "Input embeds" if args.input_embeds else "Input tokens"
         stats = stats + f"\nThroughput (including tokenization) = {throughput} tokens/second"
+        stats = stats + f"\n First token Latency = {iteration_times[0]} msec"
+        stats = stats + f"\n Next token Latency = {sum(iteration_times[1:])/len(iteration_times[1:])} msec, count = {len(iteration_times[1:])}, max = {max(iteration_times[1:])}, min = {min(iteration_times[1:])}"
         if args.show_graphs_count:
             stats = stats + f"\nNumber of HPU graphs                = {count_hpu_graphs()}"
         separator = "-" * len(stats)
